@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+    <title>Страшная математическая игра</title>
+
+    <link rel="stylesheet" href="style.css" />
+  </head>
+
+  <body>
+    <div id="startScreen">
+      <h1>Страшная игра по математике</h1>
+
+      <label>Сложность</label>
+
+      <select id="difficulty">
+        <option value="5">Лёгкий</option>
+        <option value="10">Средний</option>
+        <option value="20">Сложный</option>
+      </select>
+
+      <button onclick="startGame()">Начать игру</button>
+    </div>
+
+    <div id="game">
+      <div id="task"></div>
+
+      <input
+        id="answer"
+        type="number"
+        inputmode="numeric"
+        pattern="[0-9]*"
+        onkeydown="checkEnter(event)"
+      />
+      <br /><br />
+
+      <button onclick="check()">Ответить</button>
+
+      <div id="timer"></div>
+
+      <div id="score">Очки: 0</div>
+      <div id="lastScore">Прошлый результат: 0</div>
+    </div>
+
+    <img id="doll" src="pingvin.jfif" />
+
+    <script src="script.js"></script>
+  </body>
+</html>
