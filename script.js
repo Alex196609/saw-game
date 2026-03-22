@@ -13,7 +13,7 @@ let interval
 
 let gameMode = "normal"
 let marathonDuration = 60
-
+let gameOver = false
 
 function speak(text, callback){
 
@@ -29,6 +29,16 @@ speechSynthesis.speak(speech)
 
 }
 
+function disableGameControls(){
+  document.getElementById("answer").disabled = true
+  document.getElementById("checkButton").disabled = true
+  document.getElementById("answer").blur()
+}
+
+function enableGameControls(){
+  document.getElementById("answer").disabled = false
+  document.getElementById("checkButton").disabled = false
+}
 
 function startGame(){
 
@@ -38,6 +48,9 @@ gameMode = document.getElementById("mode").value
 score = 0
 document.getElementById("score").innerText = "Очки: 0"
 
+gameOver = false
+enableGameControls()
+  
 document.getElementById("startScreen").style.display = "none"
 document.getElementById("game").style.display = "block"
 
@@ -91,6 +104,10 @@ function newTask(){
 
 document.getElementById("doll").classList.remove("show")
 
+if(gameOver){
+  return
+}
+  
 if(gameMode === "normal"){
 clearInterval(interval)
 }
@@ -143,6 +160,10 @@ interval = setInterval(timerTick, 1000)
 
 function timerTick(){
 
+  if(gameOver){
+  return
+}
+  
 time--
 
 updateTimer()
@@ -173,6 +194,10 @@ document.getElementById("timer").innerText = "Время: " + time
 
 function check(){
 
+if(gameOver){
+  return
+}
+  
 let user = parseInt(document.getElementById("answer").value)
 
 if(isNaN(user)){
@@ -208,8 +233,12 @@ lose()
 
 function checkEnter(event){
 
+if(gameOver){
+  return
+}
+
 if(event.key === "Enter"){
-check()
+  check()
 }
 
 }
@@ -217,11 +246,21 @@ check()
 
 function lose(){
 
+if(gameOver){
+  return
+}
+
+gameOver = true
 clearInterval(interval)
+disableGameControls()
 
 localStorage.setItem("lastScore", score)
 
 document.getElementById("doll").classList.add("show")
+document.getElementById("task").innerText = "Игра окончена"
+document.getElementById("answer").value = ""
+
+speechSynthesis.cancel()
 
 setTimeout(()=>{
 
@@ -239,11 +278,21 @@ location.reload()
 
 function finishMarathon(){
 
+if(gameOver){
+  return
+}
+
+gameOver = true
 clearInterval(interval)
+disableGameControls()
 
 localStorage.setItem("lastScore", score)
 
 document.getElementById("doll").classList.add("show")
+document.getElementById("task").innerText = "Марафон окончен"
+document.getElementById("answer").value = ""
+
+speechSynthesis.cancel()
 
 setTimeout(()=>{
 
