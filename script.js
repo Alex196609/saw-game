@@ -65,7 +65,7 @@ startGame()
 
 
 function newTask(){
-
+document.getElementById("doll").classList.remove("show") //пингвин исчезает когда появляется пример
 clearInterval(interval)
 
 let operation = Math.random() < 0.5 ? "+" : "-"
@@ -172,11 +172,18 @@ clearInterval(interval)
 
 localStorage.setItem("lastScore", score)
 
-speak("Не правильно. Ты проиграла. Игра окончена.")
+document.getElementById("doll").classList.add("show")
+
+setTimeout(()=>{
+
+speak("Не правильно. Ты проиграла. Игра окончена.", ()=>{
 
 alert("Ты проиграла!")
-
 location.reload()
+
+})
+
+}, 500)
 
 }
 
