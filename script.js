@@ -14,7 +14,8 @@ let interval
 let gameMode = "normal"
 let marathonDuration = 60
 let gameOver = false
-
+let mistakes = []
+let currentTaskText = ""
 function speak(text, callback){
 
 let speech = new SpeechSynthesisUtterance(text)
@@ -50,6 +51,11 @@ document.getElementById("score").innerText = "Очки: 0"
 
 gameOver = false
 enableGameControls()
+
+mistakes = []
+currentTaskText = ""
+document.getElementById("mistakesList").innerHTML = ""
+document.getElementById("mistakesBox").style.display = "none"
   
 document.getElementById("startScreen").style.display = "none"
 document.getElementById("game").style.display = "block"
@@ -125,8 +131,9 @@ b = random(maxNumber)
 }
 
 correct = a + b
+currentTaskText = a + " + " + b
 
-document.getElementById("task").innerText = a + " + " + b
+document.getElementById("task").innerText = currentTaskText
 
 }
 
@@ -141,8 +148,9 @@ b = random(maxNumber)
 }
 
 correct = a - b
+currentTaskText = a + " - " + b
 
-document.getElementById("task").innerText = a + " - " + b
+document.getElementById("task").innerText = currentTaskText
 
 }
 
@@ -217,6 +225,12 @@ newTask()
 
 if(gameMode === "marathon"){
 
+mistakes.push({
+  task: currentTaskText,
+  userAnswer: user,
+  correctAnswer: correct
+})
+
 speak("Неправильно")
 newTask()
 
@@ -275,6 +289,31 @@ location.reload()
 
 }
 
+function showMistakes(){
+
+let box = document.getElementById("mistakesBox")
+let list = document.getElementById("mistakesList")
+
+if(mistakes.length === 0){
+  list.innerHTML = '<div class="mistakeItem">Ошибок не было. Отличный результат!</div>'
+}else{
+  let html = ""
+
+  for(let i = 0; i < mistakes.length; i++){
+    html += `
+      <div class="mistakeItem">
+        <div><strong>Пример:</strong> ${mistakes[i].task}</div>
+        <div><strong>Твой ответ:</strong> ${mistakes[i].userAnswer}</div>
+        <div><strong>Правильный ответ:</strong> ${mistakes[i].correctAnswer}</div>
+      </div>
+    `
+  }
+
+  list.innerHTML = html
+}
+
+box.style.display = "block"
+}
 
 function finishMarathon(){
 
@@ -291,22 +330,19 @@ localStorage.setItem("lastScore", score)
 document.getElementById("doll").classList.add("show")
 document.getElementById("task").innerText = "Марафон окончен"
 document.getElementById("answer").value = ""
+document.getElementById("timer").innerText = "Время вышло"
+
+showMistakes()
 
 speechSynthesis.cancel()
 
 setTimeout(()=>{
 
-speak("Время вышло. Марафон окончен. Ты набрала " + score + " очков", ()=>{
-
-alert("Марафон окончен! Очки: " + score)
-location.reload()
-
-})
+speak("Время вышло. Марафон окончен. Ты набрала " + score + " очков")
 
 }, 500)
 
 }
-
 
 function random(max){
 return Math.floor(Math.random() * (max + 1))
