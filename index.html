@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-
+    <meta name="color-scheme" content="dark" />
     <title>Страшная математическая игра</title>
 
     <link rel="stylesheet" href="style.css" />
@@ -13,7 +13,7 @@
     <div id="startScreen">
       <h1>Страшная игра по математике</h1>
 
-      <label>Сложность</label>
+      <label for="difficulty">Сложность</label>
 
       <select id="difficulty">
         <option value="5">Лёгкий</option>
@@ -27,13 +27,16 @@
     <div id="game">
       <div id="task"></div>
 
-      <input
-        id="answer"
-        type="number"
-        inputmode="numeric"
-        pattern="[0-9]*"
-        onkeydown="checkEnter(event)"
-      />
+     <input
+  id="answer"
+  type="number"
+  inputmode="numeric"
+  pattern="[0-9]*"
+  autocomplete="off"
+  enterkeyhint="done"
+  placeholder="Ответ"
+  onkeydown="checkEnter(event)"
+/>
       <br /><br />
 
       <button onclick="check()">Ответить</button>
