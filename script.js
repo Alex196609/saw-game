@@ -52,6 +52,9 @@ document.getElementById("score").innerText = "Очки: 0"
 gameOver = false
 enableGameControls()
 
+document.getElementById("answer").style.display = "inline-block"
+document.getElementById("checkButton").style.display = "inline-block"  
+
 mistakes = []
 currentTaskText = ""
 document.getElementById("mistakesList").innerHTML = ""
@@ -327,10 +330,13 @@ disableGameControls()
 
 localStorage.setItem("lastScore", score)
 
-document.getElementById("doll").classList.add("show")
+document.getElementById("doll").classList.remove("show")
 document.getElementById("task").innerText = "Марафон окончен"
 document.getElementById("answer").value = ""
 document.getElementById("timer").innerText = "Время вышло"
+
+document.getElementById("answer").style.display = "none"
+document.getElementById("checkButton").style.display = "none"
 
 showMistakes()
 
