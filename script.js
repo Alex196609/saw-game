@@ -205,45 +205,47 @@ document.getElementById("timer").innerText = "Время: " + time
 
 function check(){
 
-if(gameOver){
-  return
-}
+  if(gameOver){
+    return
+  }
   
-let user = parseInt(document.getElementById("answer").value)
+  let user = parseInt(document.getElementById("answer").value)
 
-if(isNaN(user)){
-return
-}
+  if(isNaN(user)){
+    return
+  }
 
-if(user === correct){
+  if(user === correct){
 
-score += 10
-document.getElementById("score").innerText = "Очки: " + score
+    score += 10
+    document.getElementById("score").innerText = "Очки: " + score
 
-speak("Правильно")
+    speak("Правильно")
+    newTask()
 
-newTask()
+  }else{
 
-}else{
+    score = Math.max(0, score - 10)
+    document.getElementById("score").innerText = "Очки: " + score
 
-if(gameMode === "marathon"){
+    if(gameMode === "marathon"){
 
-mistakes.push({
-  task: currentTaskText,
-  userAnswer: user,
-  correctAnswer: correct
-})
+      mistakes.push({
+        task: currentTaskText,
+        userAnswer: user,
+        correctAnswer: correct
+      })
 
-speak("Неправильно")
-newTask()
+      speak("Неправильно")
+      newTask()
 
-}else{
+    }else{
 
-lose()
+      lose()
 
-}
+    }
 
-}
+  }
 
 }
 
