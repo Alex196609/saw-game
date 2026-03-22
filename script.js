@@ -4,12 +4,15 @@ document.getElementById("lastScore").innerText =
 "Прошлый результат: " + lastScore;
 
 let maxNumber
-let a,b
+let a, b
 let correct
 let score = 0
 
 let time
 let interval
+
+let gameMode = "normal"
+let marathonDuration = 60
 
 
 function speak(text, callback){
@@ -30,23 +33,43 @@ speechSynthesis.speak(speech)
 function startGame(){
 
 maxNumber = parseInt(document.getElementById("difficulty").value)
+gameMode = document.getElementById("mode").value
 
-document.getElementById("startScreen").style.display="none"
-document.getElementById("game").style.display="block"
+score = 0
+document.getElementById("score").innerText = "Очки: 0"
 
-document.getElementById("answer").focus() // сразу открывает клавиатуру
+document.getElementById("startScreen").style.display = "none"
+document.getElementById("game").style.display = "block"
+
+document.getElementById("answer").focus()
 
 document.getElementById("doll").classList.add("show")
 
 setTimeout(()=>{
 
-speak("Привет Аня! Давай сыграем с тобой в игру",()=>{
+if(gameMode === "marathon"){
+
+speak("Привет Аня! Начинаем марафон. У тебя одна минута. Набери как можно больше очков", ()=>{
+
+time = marathonDuration
+updateTimer()
+interval = setInterval(timerTick, 1000)
 
 newTask()
 
 })
 
-},2000)
+}else{
+
+speak("Привет Аня! Давай сыграем с тобой в игру", ()=>{
+
+newTask()
+
+})
+
+}
+
+}, 2000)
 
 }
 
@@ -65,48 +88,55 @@ startGame()
 
 
 function newTask(){
-document.getElementById("doll").classList.remove("show") //пингвин исчезает когда появляется пример
+
+document.getElementById("doll").classList.remove("show")
+
+if(gameMode === "normal"){
 clearInterval(interval)
+}
 
 let operation = Math.random() < 0.5 ? "+" : "-"
 
-if(operation=="+"){
+if(operation == "+"){
 
-a=random(maxNumber)
-b=random(maxNumber)
+a = random(maxNumber)
+b = random(maxNumber)
 
-while(a+b>20){
-a=random(maxNumber)
-b=random(maxNumber)
+while(a + b > 20){
+a = random(maxNumber)
+b = random(maxNumber)
 }
 
-correct=a+b
+correct = a + b
 
-document.getElementById("task").innerText=a+" + "+b
-
-}
-
-if(operation=="-"){
-
-a=random(maxNumber)
-b=random(maxNumber)
-
-while(a-b<0){
-a=random(maxNumber)
-b=random(maxNumber)
-}
-
-correct=a-b
-
-document.getElementById("task").innerText=a+" - "+b
+document.getElementById("task").innerText = a + " + " + b
 
 }
 
-time=25
+if(operation == "-"){
 
+a = random(maxNumber)
+b = random(maxNumber)
+
+while(a - b < 0){
+a = random(maxNumber)
+b = random(maxNumber)
+}
+
+correct = a - b
+
+document.getElementById("task").innerText = a + " - " + b
+
+}
+
+document.getElementById("answer").value = ""
+document.getElementById("answer").focus()
+
+if(gameMode === "normal"){
+time = 25
 updateTimer()
-
-interval=setInterval(timerTick,1000)
+interval = setInterval(timerTick, 1000)
+}
 
 }
 
@@ -117,8 +147,14 @@ time--
 
 updateTimer()
 
-if(time<=0){
+if(time <= 0){
+
+if(gameMode === "marathon"){
+finishMarathon()
+}else{
 lose()
+}
+
 }
 
 }
@@ -126,27 +162,38 @@ lose()
 
 function updateTimer(){
 
-document.getElementById("timer").innerText="Время: "+time
+if(gameMode === "marathon"){
+document.getElementById("timer").innerText = "Марафон: " + time
+}else{
+document.getElementById("timer").innerText = "Время: " + time
+}
 
 }
 
 
 function check(){
 
-let user=parseInt(document.getElementById("answer").value)
+let user = parseInt(document.getElementById("answer").value)
 
-if(user===correct){
+if(isNaN(user)){
+return
+}
 
-score+=10
+if(user === correct){
 
-document.getElementById("score").innerText="Очки: "+score
+score += 10
+document.getElementById("score").innerText = "Очки: " + score
 
 speak("Правильно")
 
 newTask()
 
-document.getElementById("answer").value=""
-document.getElementById("answer").focus()
+}else{
+
+if(gameMode === "marathon"){
+
+speak("Неправильно")
+newTask()
 
 }else{
 
@@ -156,10 +203,12 @@ lose()
 
 }
 
+}
+
 
 function checkEnter(event){
 
-if(event.key==="Enter"){
+if(event.key === "Enter"){
 check()
 }
 
@@ -178,7 +227,29 @@ setTimeout(()=>{
 
 speak("Не правильно. Ты проиграла. Игра окончена.", ()=>{
 
-alert("Ты проиграла!")
+alert("Ты проиграла! Очки: " + score)
+location.reload()
+
+})
+
+}, 500)
+
+}
+
+
+function finishMarathon(){
+
+clearInterval(interval)
+
+localStorage.setItem("lastScore", score)
+
+document.getElementById("doll").classList.add("show")
+
+setTimeout(()=>{
+
+speak("Время вышло. Марафон окончен. Ты набрала " + score + " очков", ()=>{
+
+alert("Марафон окончен! Очки: " + score)
 location.reload()
 
 })
@@ -189,5 +260,5 @@ location.reload()
 
 
 function random(max){
-return Math.floor(Math.random()*(max+1))
+return Math.floor(Math.random() * (max + 1))
 }
