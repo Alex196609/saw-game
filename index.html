@@ -15,14 +15,20 @@
 
       <label for="difficulty">Сложность</label>
 
-      <select id="difficulty">
-        <option value="5">Лёгкий</option>
-        <option value="10">Средний</option>
-        <option value="20">Сложный</option>
-      </select>
+<select id="difficulty">
+  <option value="5">Лёгкий</option>
+  <option value="10">Средний</option>
+  <option value="20">Сложный</option>
+</select>
 
-      <button onclick="startGame()">Начать игру</button>
-    </div>
+<label for="mode">Режим</label>
+
+<select id="mode">
+  <option value="normal">Обычный</option>
+  <option value="marathon">Марафон 60 сек</option>
+</select>
+
+<button onclick="startGame()">Начать игру</button>
 
     <div id="game">
       <div id="task"></div>
