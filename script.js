@@ -19,7 +19,7 @@ let mistakes = [];
 let currentTaskText = "";
 
 // ======================
-// ОБУЧЕНИЕ
+// ОБУЧЕНИЕ (время/ошибки + разнесённые повторы)
 // ======================
 let taskBank = [];
 let taskByKey = {};
@@ -28,16 +28,26 @@ let taskStats = JSON.parse(localStorage.getItem("taskStats") || "{}");
 let taskStartTime = 0;
 let lastTaskKey = "";
 
-// План повторений: элементы вида { key, due }
-// due = сколько заданий должно пройти, прежде чем этот пример можно показывать
+// План повторений: { key, due } — due сколько заданий должно пройти до повтора
 let reviewPlan = [];
 
-// настройки (можно подкрутить)
-const REVIEW_PICK_CHANCE = 0.55;   // вероятность выбрать готовый повтор вместо нового задания
-const REVIEW_PLAN_MAX = 60;        // ограничение на размер плана повторов
+// настройки
+const REVIEW_PICK_CHANCE = 0.55;   // шанс выбрать повтор вместо обычного задания
+const REVIEW_PLAN_MAX = 60;        // ограничение на размер плана
 const MIN_REPEAT_GAP_TASKS = 2;    // минимум через сколько заданий повторять (2 => через 1 другой пример)
 
-// ---------- UI: топ проблемных + сброс ----------
+// ======================
+// Возврат в меню + показ "проблемных" после окончания игры
+// ======================
+function restartToMenu(){
+  // после перезагрузки откроемся на блоке "проблемные примеры"
+  sessionStorage.setItem("scrollToProblems", "1");
+  location.reload();
+}
+
+// ======================
+// UI: топ проблемных + сброс обучения
+// ======================
 function parseTaskKeyNumbers(key){
   const m = key.match(/^(\d+)\s*[\+\-]\s*(\d+)$/);
   if(!m) return null;
@@ -58,6 +68,7 @@ function getProblemScoreByKey(key){
   const timeSec = (s.avgMs || 0) / 1000;
   const wrong = s.wrong || 0;
 
+  // "проблемность": время + ошибки
   return timeSec * 4 + wrong * 25;
 }
 
@@ -108,7 +119,7 @@ function updateProblemsUI(){
     const wrongRate = attempts ? Math.round((wrong / attempts) * 100) : 0;
 
     html += `
-      <div style="padding:8px; border:1px solid rgba(0,0,0,.15); border-radius:8px; margin-bottom:8px;">
+      <div style="padding:8px; border:1px solid rgba(255,255,255,.12); border-radius:8px; margin-bottom:8px;">
         <div><strong>${item.key}</strong></div>
         <div style="font-size:14px;">
           Среднее время: <strong>${avgSec}с</strong>,
@@ -129,29 +140,29 @@ function resetLearning(){
   updateProblemsUI();
   alert("Обучение сброшено: статистика времени/ошибок очищена.");
 }
-// ---------- /UI ----------
 
-
+// ======================
+// Генерация заданий
+// ======================
 function buildTaskBank(max){
   const bank = [];
 
   for(let a = 0; a <= max; a++){
     for(let b = 0; b <= max; b++){
 
-      // Сложение (как у тебя: сумма не больше 20)
+      // сложение (твое ограничение суммы <= 20)
       if(a + b <= 20){
         const key = `${a} + ${b}`;
         bank.push({ key, a, b, op: "+", answer: a + b });
       }
 
-      // Вычитание (без отрицательных)
+      // вычитание (без отрицательных)
       if(a - b >= 0){
         const key = `${a} - ${b}`;
         bank.push({ key, a, b, op: "-", answer: a - b });
       }
     }
   }
-
   return bank;
 }
 
@@ -168,14 +179,12 @@ function trimReviewPlan(){
   }
 }
 
-// каждый новый пример “сдвигает” план повторов ближе к показу
 function tickReviewPlan(){
   for(const item of reviewPlan){
     if(item.due > 0) item.due -= 1;
   }
 
-  // не даём примеру появиться сразу после самого себя:
-  // если он готов (due<=0), но равен lastTaskKey — откладываем на 1 задание
+  // не даём примеру появиться сразу после самого себя
   for(const item of reviewPlan){
     if(item.due <= 0 && item.key === lastTaskKey){
       item.due = 1;
@@ -184,7 +193,6 @@ function tickReviewPlan(){
 }
 
 function scheduleReview(key, delays){
-  // delays — массив “через сколько заданий показать”
   for(const d of delays){
     reviewPlan.push({ key, due: Math.max(MIN_REPEAT_GAP_TASKS, d) });
   }
@@ -209,12 +217,10 @@ function recordTaskResult(key, elapsedMs, isCorrect){
   taskStats[key] = s;
   localStorage.setItem("taskStats", JSON.stringify(taskStats));
 
-  // --- разнесённые повторы (НЕ подряд) ---
+  // разнесённые повторы (не подряд)
   if(!isCorrect){
-    // ошибся: повторим несколько раз, но с интервалами
     scheduleReview(key, [2, 5, 9, 14]);
   }else{
-    // чем дольше думал — тем больше повторов, тоже с интервалом
     if(elapsedMs > 18000) scheduleReview(key, [3, 7, 12]);
     else if(elapsedMs > 12000) scheduleReview(key, [3, 9]);
     else if(elapsedMs > 8000) scheduleReview(key, [4]);
@@ -223,7 +229,6 @@ function recordTaskResult(key, elapsedMs, isCorrect){
   updateProblemsUI();
 }
 
-// вес для “долгосрочного” обучения
 function getTaskWeight(task){
   const s = taskStats[task.key];
   if(!s) return 1.0;
@@ -260,7 +265,6 @@ function pickWeightedAvoidLast(){
 }
 
 function pickReviewTaskIfReady(){
-  // соберём индексы готовых повторов, кроме lastTaskKey
   const readyIdx = [];
   for(let i = 0; i < reviewPlan.length; i++){
     if(reviewPlan[i].due <= 0 && reviewPlan[i].key !== lastTaskKey){
@@ -273,7 +277,7 @@ function pickReviewTaskIfReady(){
   const idx = readyIdx[Math.floor(Math.random() * readyIdx.length)];
   const key = reviewPlan[idx].key;
 
-  // удаляем 1 “слот” повтора
+  // удаляем один "слот" повтора
   reviewPlan.splice(idx, 1);
 
   return taskByKey[key] || null;
@@ -293,7 +297,6 @@ function pickTask(){
 // ======================
 // ОСТАЛЬНАЯ ИГРА
 // ======================
-
 function speak(text, callback){
   let speech = new SpeechSynthesisUtterance(text);
 
@@ -357,7 +360,7 @@ function startGame(){
   taskBank = buildTaskBank(maxNumber);
   rebuildTaskMaps();
 
-  // план повторов начинаем заново на новую игру (статистика taskStats не сбрасывается)
+  // план повторов начинаем заново на новую игру (taskStats не сбрасываем)
   reviewPlan = [];
   lastTaskKey = "";
 
@@ -502,7 +505,7 @@ function lose(){
   setTimeout(()=>{
     speak("Не правильно. Ты проиграла. Игра окончена.", ()=>{
       alert("Ты проиграла! Очки: " + score);
-      location.reload();
+      restartToMenu();
     });
   }, 500);
 }
@@ -571,4 +574,17 @@ function finishMarathon(){
   }
 
   updateProblemsUI();
+
+  // После окончания игры (через restartToMenu) открываемся на "проблемных"
+  if(sessionStorage.getItem("scrollToProblems") === "1"){
+    sessionStorage.removeItem("scrollToProblems");
+
+    // даём DOM/списку успеть отрисоваться
+    setTimeout(() => {
+      const box = document.getElementById("problemsBox");
+      if(box && box.style.display !== "none"){
+        box.scrollIntoView({ block: "start" });
+      }
+    }, 0);
+  }
 })();
