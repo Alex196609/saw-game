@@ -40,31 +40,59 @@ const REVIEW_PLAN_MAX = 60;
 const MIN_REPEAT_GAP_TASKS = 2;
 
 // ======================
-// ПРОКРУТКА МЕНЮ ВНИЗ ПОСЛЕ ОКОНЧАНИЯ ИГРЫ
-// (скроллим #startScreen, т.к. он fixed и сам scroll-container)
+// ПРОКРУТКА СТАРТОВОГО ЭКРАНА ВНИЗ
+// (у тебя #startScreen fixed и scroll-container)
 // ======================
 function scrollStartScreenToBottomAsync() {
   const scroller = document.getElementById("startScreen");
   if (!scroller) return;
 
   const toBottom = () => {
-    scroller.scrollTop = scroller.scrollHeight;
+    // максимальная позиция (scrollHeight - clientHeight)
+    const maxTop = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
+    scroller.scrollTop = maxTop;
   };
 
-  // несколько попыток — чтобы сработало даже если высота контента меняется после отрисовки
+  // несколько попыток — чтобы точно попасть вниз после отрисовки списка
   requestAnimationFrame(() => {
     toBottom();
     requestAnimationFrame(toBottom);
-    setTimeout(toBottom, 50);
-    setTimeout(toBottom, 150);
-    setTimeout(toBottom, 350);
+    setTimeout(toBottom, 60);
+    setTimeout(toBottom, 180);
+    setTimeout(toBottom, 400);
+    setTimeout(toBottom, 900);
   });
 }
 
+// ======================
+// ВОЗВРАТ В МЕНЮ БЕЗ RELOAD (надёжнее для fixed-скролла)
+// ======================
+function showMenuAtBottom() {
+  const startScreen = document.getElementById("startScreen");
+  const game = document.getElementById("game");
+
+  if (game) game.style.display = "none";
+  if (startScreen) startScreen.style.display = "flex"; // важно: flex, т.к. у тебя flex-верстка
+
+  // спрячем куклу, если была показана
+  const doll = document.getElementById("doll");
+  if (doll) doll.classList.remove("show");
+
+  // обновим список проблемных (он может измениться после последнего ответа)
+  updateProblemsUI();
+
+  // прокрутим меню вниз к "Самые проблемные примеры"
+  scrollStartScreenToBottomAsync();
+}
+
+// Эта функция вызывается из HTML кнопкой "Играть снова"
 function restartToMenu() {
-  // после перезагрузки меню автоматически прокрутится вниз к проблемным примерам
-  sessionStorage.setItem("scrollMenuToBottom", "1");
-  location.reload();
+  // на всякий случай всё остановим
+  gameOver = true;
+  clearInterval(interval);
+  speechSynthesis.cancel();
+
+  showMenuAtBottom();
 }
 
 // ======================
@@ -189,9 +217,7 @@ function buildTaskBank(max) {
 
 function rebuildTaskMaps() {
   taskByKey = {};
-  for (const t of taskBank) {
-    taskByKey[t.key] = t;
-  }
+  for (const t of taskBank) taskByKey[t.key] = t;
 }
 
 function trimReviewPlan() {
@@ -207,9 +233,7 @@ function tickReviewPlan() {
 
   // не даём примеру появиться сразу после самого себя
   for (const item of reviewPlan) {
-    if (item.due <= 0 && item.key === lastTaskKey) {
-      item.due = 1;
-    }
+    if (item.due <= 0 && item.key === lastTaskKey) item.due = 1;
   }
 }
 
@@ -222,17 +246,14 @@ function scheduleReview(key, delays) {
 
 function recordTaskResult(key, elapsedMs, isCorrect) {
   let s = taskStats[key];
-  if (!s) {
-    s = { attempts: 0, wrong: 0, avgMs: 0 };
-  }
+  if (!s) s = { attempts: 0, wrong: 0, avgMs: 0 };
 
   s.attempts += 1;
   if (!isCorrect) s.wrong += 1;
 
   // EMA — быстрее подстраивается под игрока
   const alpha = 0.35;
-  s.avgMs =
-    s.attempts === 1 ? elapsedMs : s.avgMs * (1 - alpha) + elapsedMs * alpha;
+  s.avgMs = s.attempts === 1 ? elapsedMs : (s.avgMs * (1 - alpha) + elapsedMs * alpha);
 
   taskStats[key] = s;
   localStorage.setItem("taskStats", JSON.stringify(taskStats));
@@ -286,16 +307,12 @@ function pickWeightedAvoidLast() {
 function pickReviewTaskIfReady() {
   const readyIdx = [];
   for (let i = 0; i < reviewPlan.length; i++) {
-    if (reviewPlan[i].due <= 0 && reviewPlan[i].key !== lastTaskKey) {
-      readyIdx.push(i);
-    }
+    if (reviewPlan[i].due <= 0 && reviewPlan[i].key !== lastTaskKey) readyIdx.push(i);
   }
-
   if (readyIdx.length === 0) return null;
 
   const idx = readyIdx[Math.floor(Math.random() * readyIdx.length)];
   const key = reviewPlan[idx].key;
-
   reviewPlan.splice(idx, 1);
 
   return taskByKey[key] || null;
@@ -340,12 +357,7 @@ function enableGameControls() {
 function savePlayerName() {
   let inputName = document.getElementById("playerName").value.trim();
 
-  if (inputName === "") {
-    playerName = "Игрок";
-  } else {
-    playerName = inputName;
-  }
-
+  playerName = inputName === "" ? "Игрок" : inputName;
   localStorage.setItem("playerName", playerName);
 }
 
@@ -384,9 +396,7 @@ function startGame() {
   setTimeout(() => {
     if (gameMode === "marathon") {
       speak(
-        "Привет " +
-          playerName +
-          "! Начинаем марафон. У тебя одна минута. Набери как можно больше очков",
+        "Привет " + playerName + "! Начинаем марафон. У тебя одна минута. Набери как можно больше очков",
         () => {
           time = marathonDuration;
           updateTimer();
@@ -415,9 +425,7 @@ function newTask() {
 
   if (gameOver) return;
 
-  if (gameMode === "normal") {
-    clearInterval(interval);
-  }
+  if (gameMode === "normal") clearInterval(interval);
 
   const t = pickTask();
 
@@ -448,11 +456,8 @@ function timerTick() {
   updateTimer();
 
   if (time <= 0) {
-    if (gameMode === "marathon") {
-      finishMarathon();
-    } else {
-      lose();
-    }
+    if (gameMode === "marathon") finishMarathon();
+    else lose();
   }
 }
 
@@ -486,12 +491,7 @@ function check() {
     document.getElementById("score").innerText = "Очки: " + score;
 
     if (gameMode === "marathon") {
-      mistakes.push({
-        task: currentTaskText,
-        userAnswer: user,
-        correctAnswer: correct,
-      });
-
+      mistakes.push({ task: currentTaskText, userAnswer: user, correctAnswer: correct });
       speak("Неправильно");
       newTask();
     } else {
@@ -523,7 +523,7 @@ function lose() {
   setTimeout(() => {
     speak("Не правильно. Ты проиграла. Игра окончена.", () => {
       alert("Ты проиграла! Очки: " + score);
-      restartToMenu();
+      restartToMenu(); // <-- без reload, сразу покажем низ меню
     });
   }, 500);
 }
@@ -533,8 +533,7 @@ function showMistakes() {
   let list = document.getElementById("mistakesList");
 
   if (mistakes.length === 0) {
-    list.innerHTML =
-      '<div class="mistakeItem">Ошибок не было. Отличный результат!</div>';
+    list.innerHTML = '<div class="mistakeItem">Ошибок не было. Отличный результат!</div>';
   } else {
     let html = "";
     for (let i = 0; i < mistakes.length; i++) {
@@ -583,21 +582,10 @@ function finishMarathon() {
 // ======================
 (function initLearningUI() {
   const resetBtn = document.getElementById("resetLearningButton");
-  if (resetBtn) {
-    resetBtn.addEventListener("click", resetLearning);
-  }
+  if (resetBtn) resetBtn.addEventListener("click", resetLearning);
 
   const diffEl = document.getElementById("difficulty");
-  if (diffEl) {
-    diffEl.addEventListener("change", updateProblemsUI);
-  }
+  if (diffEl) diffEl.addEventListener("change", updateProblemsUI);
 
-  // строим список проблемных
   updateProblemsUI();
-
-  // если пришли сюда после окончания игры — прокрутить меню вниз
-  if (sessionStorage.getItem("scrollMenuToBottom") === "1") {
-    sessionStorage.removeItem("scrollMenuToBottom");
-    scrollStartScreenToBottomAsync();
-  }
 })();
