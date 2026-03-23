@@ -28,16 +28,17 @@ let taskStats = JSON.parse(localStorage.getItem("taskStats") || "{}");
 let taskStartTime = 0;
 let lastTaskKey = "";
 
-// очередь “повторов” на ближайшие задания (ощутимый эффект обучения)
-let reviewQueue = [];
+// План повторений: элементы вида { key, due }
+// due = сколько заданий должно пройти, прежде чем этот пример можно показывать
+let reviewPlan = [];
 
 // настройки (можно подкрутить)
-const REVIEW_PICK_CHANCE = 0.65;   // вероятность взять пример из очереди повторов
-const REVIEW_QUEUE_MAX = 40;
+const REVIEW_PICK_CHANCE = 0.55;   // вероятность выбрать готовый повтор вместо нового задания
+const REVIEW_PLAN_MAX = 60;        // ограничение на размер плана повторов
+const MIN_REPEAT_GAP_TASKS = 2;    // минимум через сколько заданий повторять (2 => через 1 другой пример)
 
 // ---------- UI: топ проблемных + сброс ----------
 function parseTaskKeyNumbers(key){
-  // key вида "12 + 3" или "12 - 3"
   const m = key.match(/^(\d+)\s*[\+\-]\s*(\d+)$/);
   if(!m) return null;
   return { a: parseInt(m[1], 10), b: parseInt(m[2], 10) };
@@ -54,11 +55,9 @@ function getProblemScoreByKey(key){
   const s = taskStats[key];
   if(!s) return 0;
 
-  // Итоговая "проблемность": время + ошибки
   const timeSec = (s.avgMs || 0) / 1000;
   const wrong = s.wrong || 0;
 
-  // можно менять веса:
   return timeSec * 4 + wrong * 25;
 }
 
@@ -126,7 +125,7 @@ function updateProblemsUI(){
 function resetLearning(){
   localStorage.removeItem("taskStats");
   taskStats = {};
-  reviewQueue = [];
+  reviewPlan = [];
   updateProblemsUI();
   alert("Обучение сброшено: статистика времени/ошибок очищена.");
 }
@@ -163,13 +162,33 @@ function rebuildTaskMaps(){
   }
 }
 
-function pushToReviewQueue(key, count){
-  for(let i = 0; i < count; i++){
-    reviewQueue.push(key);
+function trimReviewPlan(){
+  if(reviewPlan.length > REVIEW_PLAN_MAX){
+    reviewPlan = reviewPlan.slice(reviewPlan.length - REVIEW_PLAN_MAX);
   }
-  if(reviewQueue.length > REVIEW_QUEUE_MAX){
-    reviewQueue = reviewQueue.slice(reviewQueue.length - REVIEW_QUEUE_MAX);
+}
+
+// каждый новый пример “сдвигает” план повторов ближе к показу
+function tickReviewPlan(){
+  for(const item of reviewPlan){
+    if(item.due > 0) item.due -= 1;
   }
+
+  // не даём примеру появиться сразу после самого себя:
+  // если он готов (due<=0), но равен lastTaskKey — откладываем на 1 задание
+  for(const item of reviewPlan){
+    if(item.due <= 0 && item.key === lastTaskKey){
+      item.due = 1;
+    }
+  }
+}
+
+function scheduleReview(key, delays){
+  // delays — массив “через сколько заданий показать”
+  for(const d of delays){
+    reviewPlan.push({ key, due: Math.max(MIN_REPEAT_GAP_TASKS, d) });
+  }
+  trimReviewPlan();
 }
 
 function recordTaskResult(key, elapsedMs, isCorrect){
@@ -190,28 +209,31 @@ function recordTaskResult(key, elapsedMs, isCorrect){
   taskStats[key] = s;
   localStorage.setItem("taskStats", JSON.stringify(taskStats));
 
-  // короткий “повтор” (чтобы обучение было заметно)
+  // --- разнесённые повторы (НЕ подряд) ---
   if(!isCorrect){
-    pushToReviewQueue(key, 8);
+    // ошибся: повторим несколько раз, но с интервалами
+    scheduleReview(key, [2, 5, 9, 14]);
   }else{
-    if(elapsedMs > 18000) pushToReviewQueue(key, 5);
-    else if(elapsedMs > 12000) pushToReviewQueue(key, 3);
-    else if(elapsedMs > 8000) pushToReviewQueue(key, 1);
+    // чем дольше думал — тем больше повторов, тоже с интервалом
+    if(elapsedMs > 18000) scheduleReview(key, [3, 7, 12]);
+    else if(elapsedMs > 12000) scheduleReview(key, [3, 9]);
+    else if(elapsedMs > 8000) scheduleReview(key, [4]);
   }
 
   updateProblemsUI();
 }
 
+// вес для “долгосрочного” обучения
 function getTaskWeight(task){
   const s = taskStats[task.key];
   if(!s) return 1.0;
 
   const timeSec = (s.avgMs || 0) / 1000;
 
-  const timeScore = Math.min(90, timeSec * 3.5);  // 25s -> ~87.5
+  const timeScore = Math.min(90, timeSec * 3.5);
   const wrongScore = Math.min(140, (s.wrong || 0) * 45);
 
-  return 1 + timeScore + wrongScore;              // обычно 1..200+
+  return 1 + timeScore + wrongScore;
 }
 
 function weightedPick(bank){
@@ -227,22 +249,45 @@ function weightedPick(bank){
   return bank[bank.length - 1];
 }
 
-function pickTask(){
-  // 1) очередь повторов
-  if(reviewQueue.length > 0 && Math.random() < REVIEW_PICK_CHANCE){
-    let key = reviewQueue.shift();
+function pickWeightedAvoidLast(){
+  let t = weightedPick(taskBank);
 
-    // избегаем повтора 2 раза подряд
-    if(key === lastTaskKey && reviewQueue.length > 0){
-      key = reviewQueue.shift();
+  // небольшая защита от повтора подряд
+  for(let i = 0; i < 6 && taskBank.length > 1 && t.key === lastTaskKey; i++){
+    t = weightedPick(taskBank);
+  }
+  return t;
+}
+
+function pickReviewTaskIfReady(){
+  // соберём индексы готовых повторов, кроме lastTaskKey
+  const readyIdx = [];
+  for(let i = 0; i < reviewPlan.length; i++){
+    if(reviewPlan[i].due <= 0 && reviewPlan[i].key !== lastTaskKey){
+      readyIdx.push(i);
     }
-
-    const t = taskByKey[key];
-    if(t) return t;
   }
 
-  // 2) иначе — взвешенный выбор по статистике
-  return weightedPick(taskBank);
+  if(readyIdx.length === 0) return null;
+
+  const idx = readyIdx[Math.floor(Math.random() * readyIdx.length)];
+  const key = reviewPlan[idx].key;
+
+  // удаляем 1 “слот” повтора
+  reviewPlan.splice(idx, 1);
+
+  return taskByKey[key] || null;
+}
+
+function pickTask(){
+  tickReviewPlan();
+
+  if(Math.random() < REVIEW_PICK_CHANCE){
+    const reviewTask = pickReviewTaskIfReady();
+    if(reviewTask) return reviewTask;
+  }
+
+  return pickWeightedAvoidLast();
 }
 
 // ======================
@@ -312,8 +357,8 @@ function startGame(){
   taskBank = buildTaskBank(maxNumber);
   rebuildTaskMaps();
 
-  // очередь повторов — с чистого листа на новую игру (статистика taskStats не сбрасывается)
-  reviewQueue = [];
+  // план повторов начинаем заново на новую игру (статистика taskStats не сбрасывается)
+  reviewPlan = [];
   lastTaskKey = "";
 
   setTimeout(()=>{
