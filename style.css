@@ -1,32 +1,42 @@
+html, body{
+  height:100%;
+}
+
 body{
   margin:0;
   font-family:Arial;
   background:black;
   color:white;
   text-align:center;
+
   overflow-x:hidden;
-  overflow-y:auto; /* вертикальный скролл разрешён */
+  overflow-y:hidden; /* скроллим не body, а #startScreen */
 }
 
-/* СТАРТОВЫЙ ЭКРАН — теперь скроллится */
+/* СТАРТОВЫЙ ЭКРАН: фиксированный как раньше, но теперь со скроллом */
 #startScreen{
-  position:relative;          /* было fixed */
+  position:fixed;
+  inset:0; /* top:0; right:0; bottom:0; left:0; */
   width:100%;
-  min-height:100vh;           /* на весь экран, но может быть выше */
+  height:100vh;
+
   background:black;
 
   display:flex;
   flex-direction:column;
   align-items:center;
 
-  justify-content:flex-start; /* было center, из-за этого неудобно с длинным списком */
+  justify-content:flex-start; /* чтобы длинный список начинался сверху */
   gap:20px;
 
-  padding:24px 12px 60px;     /* чтобы низ списка не прилипал к краю */
+  padding:24px 12px 60px;
   box-sizing:border-box;
+
+  overflow-y:auto;                  /* ВОТ ГЛАВНОЕ */
+  -webkit-overflow-scrolling:touch; /* плавный скролл на телефонах */
 }
 
-select, button{
+select,button{
   padding:10px 20px;
   font-size:20px;
 }
@@ -69,19 +79,6 @@ input{
 
 #doll.show{
   right:20px;
-}
-
-/* Блок “проблемные примеры” (если ты добавлял его в HTML) */
-#problemsBox{
-  width:100%;
-  max-width:650px;
-  margin:10px auto 0;
-  box-sizing:border-box;
-}
-
-#problemsList{
-  width:100%;
-  box-sizing:border-box;
 }
 
 @media (max-width:600px){
