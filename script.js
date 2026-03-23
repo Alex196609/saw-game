@@ -1,7 +1,10 @@
 let lastScore = localStorage.getItem("lastScore") || 0;
+let playerName = localStorage.getItem("playerName") || "";
 
 document.getElementById("lastScore").innerText =
 "Прошлый результат: " + lastScore;
+
+document.getElementById("playerName").value = playerName;
 
 let maxNumber
 let a, b
@@ -41,7 +44,21 @@ function enableGameControls(){
   document.getElementById("checkButton").disabled = false
 }
 
+function savePlayerName(){
+  let inputName = document.getElementById("playerName").value.trim();
+
+  if(inputName === ""){
+    playerName = "Игрок";
+  }else{
+    playerName = inputName;
+  }
+
+  localStorage.setItem("playerName", playerName);
+}
+
 function startGame(){
+
+savePlayerName();  
 
 maxNumber = parseInt(document.getElementById("difficulty").value)
 gameMode = document.getElementById("mode").value
@@ -71,7 +88,7 @@ setTimeout(()=>{
 
 if(gameMode === "marathon"){
 
-speak("Привет Аня! Начинаем марафон. У тебя одна минута. Набери как можно больше очков", ()=>{
+speak("Привет " + playerName + "! Начинаем марафон. У тебя одна минута. Набери как можно больше очков", ()=>{
 
 time = marathonDuration
 updateTimer()
@@ -83,7 +100,7 @@ newTask()
 
 }else{
 
-speak("Привет Аня! Давай сыграем с тобой в игру", ()=>{
+speak("Привет " + playerName + "! Давай сыграем с тобой в игру", ()=>{
 
 newTask()
 
