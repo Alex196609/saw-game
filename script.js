@@ -1,9 +1,7 @@
 let lastScore = localStorage.getItem("lastScore") || 0;
 let playerName = localStorage.getItem("playerName") || "";
 
-document.getElementById("lastScore").innerText =
-  "Прошлый результат: " + lastScore;
-
+document.getElementById("lastScore").innerText = "Прошлый результат: " + lastScore;
 document.getElementById("playerName").value = playerName;
 
 let maxNumber;
@@ -20,25 +18,135 @@ let gameOver = false;
 let mistakes = [];
 let currentTaskText = "";
 
-// --- ОБУЧЕНИЕ (пункты 1-5) ---
+// ======================
+// ОБУЧЕНИЕ
+// ======================
 let taskBank = [];
+let taskByKey = {};
 let taskStats = JSON.parse(localStorage.getItem("taskStats") || "{}");
+
 let taskStartTime = 0;
 let lastTaskKey = "";
 
-function buildTaskBank(max) {
+// очередь “повторов” на ближайшие задания (ощутимый эффект обучения)
+let reviewQueue = [];
+
+// настройки (можно подкрутить)
+const REVIEW_PICK_CHANCE = 0.65;   // вероятность взять пример из очереди повторов
+const REVIEW_QUEUE_MAX = 40;
+
+// ---------- UI: топ проблемных + сброс ----------
+function parseTaskKeyNumbers(key){
+  // key вида "12 + 3" или "12 - 3"
+  const m = key.match(/^(\d+)\s*[\+\-]\s*(\d+)$/);
+  if(!m) return null;
+  return { a: parseInt(m[1], 10), b: parseInt(m[2], 10) };
+}
+
+function getCurrentDifficulty(){
+  const el = document.getElementById("difficulty");
+  if(!el) return null;
+  const v = parseInt(el.value, 10);
+  return Number.isFinite(v) ? v : null;
+}
+
+function getProblemScoreByKey(key){
+  const s = taskStats[key];
+  if(!s) return 0;
+
+  // Итоговая "проблемность": время + ошибки
+  const timeSec = (s.avgMs || 0) / 1000;
+  const wrong = s.wrong || 0;
+
+  // можно менять веса:
+  return timeSec * 4 + wrong * 25;
+}
+
+function getTopProblems(limit = 10, difficultyFilter = null){
+  const keys = Object.keys(taskStats);
+
+  const filtered = keys.filter(k => {
+    const s = taskStats[k];
+    if(!s || !s.attempts) return false;
+
+    if(difficultyFilter == null) return true;
+
+    const nums = parseTaskKeyNumbers(k);
+    if(!nums) return true;
+    return nums.a <= difficultyFilter && nums.b <= difficultyFilter;
+  });
+
+  filtered.sort((k1, k2) => getProblemScoreByKey(k2) - getProblemScoreByKey(k1));
+
+  return filtered.slice(0, limit).map(k => ({
+    key: k,
+    ...taskStats[k],
+    score: getProblemScoreByKey(k)
+  }));
+}
+
+function updateProblemsUI(){
+  const box = document.getElementById("problemsBox");
+  const list = document.getElementById("problemsList");
+  if(!box || !list) return;
+
+  const diff = getCurrentDifficulty();
+  const top = getTopProblems(10, diff);
+
+  if(top.length === 0){
+    box.style.display = "none";
+    list.innerHTML = "";
+    return;
+  }
+
+  box.style.display = "block";
+
+  let html = "";
+  for(const item of top){
+    const attempts = item.attempts || 0;
+    const wrong = item.wrong || 0;
+    const avgSec = ((item.avgMs || 0) / 1000).toFixed(1);
+    const wrongRate = attempts ? Math.round((wrong / attempts) * 100) : 0;
+
+    html += `
+      <div style="padding:8px; border:1px solid rgba(0,0,0,.15); border-radius:8px; margin-bottom:8px;">
+        <div><strong>${item.key}</strong></div>
+        <div style="font-size:14px;">
+          Среднее время: <strong>${avgSec}с</strong>,
+          попыток: ${attempts},
+          ошибок: <strong>${wrong}</strong> (${wrongRate}%)
+        </div>
+      </div>
+    `;
+  }
+
+  list.innerHTML = html;
+}
+
+function resetLearning(){
+  localStorage.removeItem("taskStats");
+  taskStats = {};
+  reviewQueue = [];
+  updateProblemsUI();
+  alert("Обучение сброшено: статистика времени/ошибок очищена.");
+}
+// ---------- /UI ----------
+
+
+function buildTaskBank(max){
   const bank = [];
 
-  for (let a = 0; a <= max; a++) {
-    for (let b = 0; b <= max; b++) {
-      // Сложение (как в твоей логике: сумма не больше 20)
-      if (a + b <= 20) {
+  for(let a = 0; a <= max; a++){
+    for(let b = 0; b <= max; b++){
+
+      // Сложение (как у тебя: сумма не больше 20)
+      if(a + b <= 20){
         const key = `${a} + ${b}`;
         bank.push({ key, a, b, op: "+", answer: a + b });
       }
 
       // Вычитание (без отрицательных)
-      if (a - b >= 0) {
+      if(a - b >= 0){
         const key = `${a} - ${b}`;
         bank.push({ key, a, b, op: "-", answer: a - b });
       }
@@ -48,56 +156,100 @@ function buildTaskBank(max) {
   return bank;
 }
 
-function recordTaskResult(key, elapsedMs, isCorrect) {
+function rebuildTaskMaps(){
+  taskByKey = {};
+  for(const t of taskBank){
+    taskByKey[t.key] = t;
+  }
+}
+
+function pushToReviewQueue(key, count){
+  for(let i = 0; i < count; i++){
+    reviewQueue.push(key);
+  }
+  if(reviewQueue.length > REVIEW_QUEUE_MAX){
+    reviewQueue = reviewQueue.slice(reviewQueue.length - REVIEW_QUEUE_MAX);
+  }
+}
+
+function recordTaskResult(key, elapsedMs, isCorrect){
   let s = taskStats[key];
-  if (!s) {
+  if(!s){
     s = { attempts: 0, wrong: 0, avgMs: 0 };
   }
 
   s.attempts += 1;
-  if (!isCorrect) s.wrong += 1;
+  if(!isCorrect) s.wrong += 1;
 
-  // EMA (экспоненциальное среднее) — быстрее подстраивается под игрока
-  const alpha = 0.3;
+  // EMA — быстрее подстраивается под игрока
+  const alpha = 0.35;
   s.avgMs = (s.attempts === 1)
     ? elapsedMs
     : (s.avgMs * (1 - alpha) + elapsedMs * alpha);
 
   taskStats[key] = s;
   localStorage.setItem("taskStats", JSON.stringify(taskStats));
+
+  // короткий “повтор” (чтобы обучение было заметно)
+  if(!isCorrect){
+    pushToReviewQueue(key, 8);
+  }else{
+    if(elapsedMs > 18000) pushToReviewQueue(key, 5);
+    else if(elapsedMs > 12000) pushToReviewQueue(key, 3);
+    else if(elapsedMs > 8000) pushToReviewQueue(key, 1);
+  }
+
+  updateProblemsUI();
 }
 
-function getTaskWeight(task) {
+function getTaskWeight(task){
   const s = taskStats[task.key];
-  if (!s) return 1.0; // новый пример тоже должен выпадать
+  if(!s) return 1.0;
 
-  // Чем больше среднее время — тем выше вес
-  const timeFactor = Math.min(5, s.avgMs / 1500); // ~1.5с = норм, выше => чаще
+  const timeSec = (s.avgMs || 0) / 1000;
 
-  // Чем больше доля ошибок — тем выше вес
-  const wrongRate = s.attempts ? (s.wrong / s.attempts) : 0;
-  const wrongFactor = 1 + wrongRate * 6; // 1..7
+  const timeScore = Math.min(90, timeSec * 3.5);  // 25s -> ~87.5
+  const wrongScore = Math.min(140, (s.wrong || 0) * 45);
 
-  // Итоговый вес (время + ошибки)
-  return 0.6 + timeFactor + wrongFactor;
+  return 1 + timeScore + wrongScore;              // обычно 1..200+
 }
 
-function weightedPick(bank) {
+function weightedPick(bank){
   let total = 0;
-  for (const t of bank) total += getTaskWeight(t);
+  for(const t of bank) total += getTaskWeight(t);
 
   let r = Math.random() * total;
-  for (const t of bank) {
+  for(const t of bank){
     r -= getTaskWeight(t);
-    if (r <= 0) return t;
+    if(r <= 0) return t;
   }
 
   return bank[bank.length - 1];
 }
-// --- /ОБУЧЕНИЕ ---
 
+function pickTask(){
+  // 1) очередь повторов
+  if(reviewQueue.length > 0 && Math.random() < REVIEW_PICK_CHANCE){
+    let key = reviewQueue.shift();
 
-function speak(text, callback) {
+    // избегаем повтора 2 раза подряд
+    if(key === lastTaskKey && reviewQueue.length > 0){
+      key = reviewQueue.shift();
+    }
+
+    const t = taskByKey[key];
+    if(t) return t;
+  }
+
+  // 2) иначе — взвешенный выбор по статистике
+  return weightedPick(taskBank);
+}
+
+// ======================
+// ОСТАЛЬНАЯ ИГРА
+// ======================
+
+function speak(text, callback){
   let speech = new SpeechSynthesisUtterance(text);
 
   speech.rate = 0.65;
@@ -105,41 +257,37 @@ function speak(text, callback) {
   speech.volume = 1;
 
   speech.onend = callback;
-
   speechSynthesis.speak(speech);
 }
 
-function disableGameControls() {
+function disableGameControls(){
   document.getElementById("answer").disabled = true;
   document.getElementById("checkButton").disabled = true;
   document.getElementById("answer").blur();
 }
 
-function enableGameControls() {
+function enableGameControls(){
   document.getElementById("answer").disabled = false;
   document.getElementById("checkButton").disabled = false;
 }
 
-function savePlayerName() {
+function savePlayerName(){
   let inputName = document.getElementById("playerName").value.trim();
 
-  if (inputName === "") {
+  if(inputName === ""){
     playerName = "Игрок";
-  } else {
+  }else{
     playerName = inputName;
   }
 
   localStorage.setItem("playerName", playerName);
 }
 
-function startGame() {
+function startGame(){
   savePlayerName();
 
   maxNumber = parseInt(document.getElementById("difficulty").value, 10);
   gameMode = document.getElementById("mode").value;
-
-  // (п.3) собираем банк заданий для "обучающего" выбора
-  taskBank = buildTaskBank(maxNumber);
 
   score = 0;
   document.getElementById("score").innerText = "Очки: 0";
@@ -159,147 +307,140 @@ function startGame() {
   document.getElementById("game").style.display = "block";
 
   document.getElementById("answer").focus();
-
   document.getElementById("doll").classList.add("show");
 
-  setTimeout(() => {
-    if (gameMode === "marathon") {
+  taskBank = buildTaskBank(maxNumber);
+  rebuildTaskMaps();
+
+  // очередь повторов — с чистого листа на новую игру (статистика taskStats не сбрасывается)
+  reviewQueue = [];
+  lastTaskKey = "";
+
+  setTimeout(()=>{
+    if(gameMode === "marathon"){
       speak(
-        "Привет " +
-          playerName +
-          "! Начинаем марафон. У тебя одна минута. Набери как можно больше очков",
-        () => {
+        "Привет " + playerName + "! Начинаем марафон. У тебя одна минута. Набери как можно больше очков",
+        ()=>{
           time = marathonDuration;
           updateTimer();
           interval = setInterval(timerTick, 1000);
-
           newTask();
         }
       );
-    } else {
-      speak("Привет " + playerName + "! Давай сыграем с тобой в игру", () => {
+    }else{
+      speak("Привет " + playerName + "! Давай сыграем с тобой в игру", ()=>{
         newTask();
       });
     }
   }, 2000);
 }
 
-document.addEventListener("keydown", function (event) {
-  if (event.key === "Enter") {
-    if (document.getElementById("startScreen").style.display !== "none") {
+document.addEventListener("keydown", function(event){
+  if(event.key === "Enter"){
+    if(document.getElementById("startScreen").style.display !== "none"){
       startGame();
     }
   }
 });
 
-function newTask() {
+function newTask(){
   document.getElementById("doll").classList.remove("show");
 
-  if (gameOver) return;
+  if(gameOver) return;
 
-  if (gameMode === "normal") {
+  if(gameMode === "normal"){
     clearInterval(interval);
   }
 
-  // (п.4) выбираем пример так, чтобы сложные/ошибочные выпадали чаще
-  let t = weightedPick(taskBank);
-
-  // защита от повтора 2 раза подряд
-  if (taskBank.length > 1 && t.key === lastTaskKey) {
-    t = weightedPick(taskBank);
-  }
-  lastTaskKey = t.key;
+  const t = pickTask();
 
   a = t.a;
   b = t.b;
   correct = t.answer;
   currentTaskText = t.key;
+  lastTaskKey = t.key;
 
   document.getElementById("task").innerText = currentTaskText;
 
   document.getElementById("answer").value = "";
   document.getElementById("answer").focus();
 
-  // старт измерения времени решения
   taskStartTime = performance.now();
 
-  if (gameMode === "normal") {
+  if(gameMode === "normal"){
     time = 25;
     updateTimer();
     interval = setInterval(timerTick, 1000);
   }
 }
 
-function timerTick() {
-  if (gameOver) return;
+function timerTick(){
+  if(gameOver) return;
 
   time--;
   updateTimer();
 
-  if (time <= 0) {
-    if (gameMode === "marathon") {
+  if(time <= 0){
+    if(gameMode === "marathon"){
       finishMarathon();
-    } else {
+    }else{
       lose();
     }
   }
 }
 
-function updateTimer() {
-  if (gameMode === "marathon") {
+function updateTimer(){
+  if(gameMode === "marathon"){
     document.getElementById("timer").innerText = "Марафон: " + time;
-  } else {
+  }else{
     document.getElementById("timer").innerText = "Время: " + time;
   }
 }
 
-function check() {
-  if (gameOver) return;
+function check(){
+  if(gameOver) return;
 
   let user = parseInt(document.getElementById("answer").value, 10);
+  if(isNaN(user)) return;
 
-  if (isNaN(user)) return;
-
-  // (п.5) записываем: сколько думал + правильно/неправильно
   const elapsedMs = performance.now() - taskStartTime;
-  const isCorrect = user === correct;
+  const isCorrect = (user === correct);
+
+  // обучение
   recordTaskResult(currentTaskText, elapsedMs, isCorrect);
 
-  if (isCorrect) {
+  if(isCorrect){
     score += 10;
     document.getElementById("score").innerText = "Очки: " + score;
 
     speak("Правильно");
     newTask();
-  } else {
+  }else{
     score = Math.max(0, score - 10);
     document.getElementById("score").innerText = "Очки: " + score;
 
-    if (gameMode === "marathon") {
+    if(gameMode === "marathon"){
       mistakes.push({
         task: currentTaskText,
         userAnswer: user,
-        correctAnswer: correct,
+        correctAnswer: correct
       });
 
       speak("Неправильно");
       newTask();
-    } else {
+    }else{
       lose();
     }
   }
 }
 
-function checkEnter(event) {
-  if (gameOver) return;
-
-  if (event.key === "Enter") {
-    check();
-  }
+function checkEnter(event){
+  if(gameOver) return;
+  if(event.key === "Enter") check();
 }
 
-function lose() {
-  if (gameOver) return;
+function lose(){
+  if(gameOver) return;
 
   gameOver = true;
   clearInterval(interval);
@@ -313,25 +454,23 @@ function lose() {
 
   speechSynthesis.cancel();
 
-  setTimeout(() => {
-    speak("Не правильно. Ты проиграла. Игра окончена.", () => {
+  setTimeout(()=>{
+    speak("Не правильно. Ты проиграла. Игра окончена.", ()=>{
       alert("Ты проиграла! Очки: " + score);
       location.reload();
     });
   }, 500);
 }
 
-function showMistakes() {
+function showMistakes(){
   let box = document.getElementById("mistakesBox");
   let list = document.getElementById("mistakesList");
 
-  if (mistakes.length === 0) {
-    list.innerHTML =
-      '<div class="mistakeItem">Ошибок не было. Отличный результат!</div>';
-  } else {
+  if(mistakes.length === 0){
+    list.innerHTML = '<div class="mistakeItem">Ошибок не было. Отличный результат!</div>';
+  }else{
     let html = "";
-
-    for (let i = 0; i < mistakes.length; i++) {
+    for(let i = 0; i < mistakes.length; i++){
       html += `
         <div class="mistakeItem">
           <div><strong>Пример:</strong> ${mistakes[i].task}</div>
@@ -340,15 +479,14 @@ function showMistakes() {
         </div>
       `;
     }
-
     list.innerHTML = html;
   }
 
   box.style.display = "block";
 }
 
-function finishMarathon() {
-  if (gameOver) return;
+function finishMarathon(){
+  if(gameOver) return;
 
   gameOver = true;
   clearInterval(interval);
@@ -368,12 +506,24 @@ function finishMarathon() {
 
   speechSynthesis.cancel();
 
-  setTimeout(() => {
+  setTimeout(()=>{
     speak("Время вышло. Марафон окончен. Ты набрала " + score + " очков");
   }, 500);
 }
 
-// оставил твою функцию random (сейчас она не нужна, но пусть будет)
-function random(max) {
-  return Math.floor(Math.random() * (max + 1));
-}
+// ======================
+// ИНИЦИАЛИЗАЦИЯ UI
+// ======================
+(function initLearningUI(){
+  const resetBtn = document.getElementById("resetLearningButton");
+  if(resetBtn){
+    resetBtn.addEventListener("click", resetLearning);
+  }
+
+  const diffEl = document.getElementById("difficulty");
+  if(diffEl){
+    diffEl.addEventListener("change", updateProblemsUI);
+  }
+
+  updateProblemsUI();
+})();
