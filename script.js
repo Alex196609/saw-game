@@ -40,59 +40,69 @@ const REVIEW_PLAN_MAX = 60;
 const MIN_REPEAT_GAP_TASKS = 2;
 
 // ======================
-// ПРОКРУТКА СТАРТОВОГО ЭКРАНА ВНИЗ
-// (у тебя #startScreen fixed и scroll-container)
+// МЕНЮ: показать + автопрокрутка к "проблемным"
+// (у тебя скроллит window, потому что startScreen position:relative)
 // ======================
-function scrollStartScreenToBottomAsync() {
-  const scroller = document.getElementById("startScreen");
-  if (!scroller) return;
-
-  const toBottom = () => {
-    // максимальная позиция (scrollHeight - clientHeight)
-    const maxTop = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
-    scroller.scrollTop = maxTop;
-  };
-
-  // несколько попыток — чтобы точно попасть вниз после отрисовки списка
-  requestAnimationFrame(() => {
-    toBottom();
-    requestAnimationFrame(toBottom);
-    setTimeout(toBottom, 60);
-    setTimeout(toBottom, 180);
-    setTimeout(toBottom, 400);
-    setTimeout(toBottom, 900);
-  });
-}
-
-// ======================
-// ВОЗВРАТ В МЕНЮ БЕЗ RELOAD (надёжнее для fixed-скролла)
-// ======================
-function showMenuAtBottom() {
+function showStartMenu() {
   const startScreen = document.getElementById("startScreen");
   const game = document.getElementById("game");
+  const doll = document.getElementById("doll");
 
   if (game) game.style.display = "none";
-  if (startScreen) startScreen.style.display = "flex"; // важно: flex, т.к. у тебя flex-верстка
-
-  // спрячем куклу, если была показана
-  const doll = document.getElementById("doll");
+  if (startScreen) startScreen.style.display = "flex";
   if (doll) doll.classList.remove("show");
 
-  // обновим список проблемных (он может измениться после последнего ответа)
-  updateProblemsUI();
+  // снять фокус, чтобы браузер не "подскроллил" обратно
+  if (document.activeElement && typeof document.activeElement.blur === "function") {
+    document.activeElement.blur();
+  }
 
-  // прокрутим меню вниз к "Самые проблемные примеры"
-  scrollStartScreenToBottomAsync();
+  updateProblemsUI();
+  renderLastMarathonBoxFromSession(); // если есть сохранённые ошибки марафона
 }
 
-// Эта функция вызывается из HTML кнопкой "Играть снова"
+function scrollMenuToProblemsHeaderAsync() {
+  const problemsBox = document.getElementById("problemsBox");
+  if (!problemsBox) return;
+
+  const header = document.querySelector("#problemsBox h2") || problemsBox;
+
+  const run = () => {
+    // если блок скрыт — скроллить некуда
+    if (getComputedStyle(problemsBox).display === "none") return;
+
+    // хотим, чтобы заголовок оказался вверху экрана
+    const y = header.getBoundingClientRect().top + window.scrollY - 10;
+    window.scrollTo(0, Math.max(0, y));
+  };
+
+  // Несколько попыток (рендер, шрифты, перерасчёт высоты)
+  requestAnimationFrame(() => {
+    run();
+    requestAnimationFrame(run);
+    setTimeout(run, 80);
+    setTimeout(run, 250);
+    setTimeout(run, 600);
+  });
+
+  window.addEventListener("load", run, { once: true });
+  window.addEventListener("pageshow", run, { once: true });
+
+  if (document.fonts?.ready) document.fonts.ready.then(run);
+}
+
+function returnToMenuAndScrollToProblems() {
+  showStartMenu();
+  scrollMenuToProblemsHeaderAsync();
+}
+
+// Эта функция вызывается из HTML кнопкой "Играть снова" и из lose()
 function restartToMenu() {
-  // на всякий случай всё остановим
   gameOver = true;
   clearInterval(interval);
   speechSynthesis.cancel();
 
-  showMenuAtBottom();
+  returnToMenuAndScrollToProblems();
 }
 
 // ======================
@@ -189,6 +199,86 @@ function resetLearning() {
   reviewPlan = [];
   updateProblemsUI();
   alert("Обучение сброшено: статистика времени/ошибок очищена.");
+}
+
+// ======================
+// МАРАФОН: сохранить ошибки и показать их в меню
+// ======================
+function saveLastMarathonToSession() {
+  try {
+    const payload = {
+      score,
+      mistakes,
+      at: Date.now(),
+    };
+    sessionStorage.setItem("lastMarathon", JSON.stringify(payload));
+  } catch (e) {
+    // ignore
+  }
+}
+
+function renderLastMarathonBoxFromSession() {
+  const startScreen = document.getElementById("startScreen");
+  const problemsBox = document.getElementById("problemsBox");
+  if (!startScreen || !problemsBox) return;
+
+  // удалить старый блок, если есть
+  const old = document.getElementById("lastMarathonBox");
+  if (old) old.remove();
+
+  const raw = sessionStorage.getItem("lastMarathon");
+  if (!raw) return;
+
+  let data;
+  try {
+    data = JSON.parse(raw);
+  } catch {
+    return;
+  }
+
+  // если ошибок нет — всё равно можно показать итог
+  const box = document.createElement("div");
+  box.id = "lastMarathonBox";
+  box.style.cssText =
+    "max-width:650px;width:100%;box-sizing:border-box;margin:12px auto 0;padding:12px;border:1px solid rgba(255,255,255,.15);border-radius:10px;background:#111;text-align:left;";
+
+  let html = `<div style="display:flex;justify-content:space-between;gap:10px;align-items:center;">
+      <div style="font-weight:700;">Последний марафон</div>
+      <button type="button" id="closeMarathonBoxBtn" style="padding:6px 10px;font-size:14px;">Закрыть</button>
+    </div>
+    <div style="margin-top:8px;">Очки: <strong>${data.score ?? 0}</strong></div>`;
+
+  const ms = Array.isArray(data.mistakes) ? data.mistakes : [];
+  if (ms.length > 0) {
+    html += `<div style="margin-top:10px;font-weight:700;">Ошибки:</div>`;
+    html += `<div style="margin-top:6px;display:flex;flex-direction:column;gap:8px;">`;
+    for (const m of ms.slice(0, 20)) {
+      html += `
+        <div style="padding:8px;border:1px solid rgba(255,255,255,.12);border-radius:8px;background:#1a1a1a;">
+          <div><strong>${m.task}</strong></div>
+          <div style="font-size:14px;">Твой ответ: ${m.userAnswer} — Правильно: ${m.correctAnswer}</div>
+        </div>
+      `;
+    }
+    html += `</div>`;
+    if (ms.length > 20) {
+      html += `<div style="margin-top:8px;font-size:13px;opacity:.8;">Показаны первые 20 ошибок.</div>`;
+    }
+  } else {
+    html += `<div style="margin-top:10px;">Ошибок не было.</div>`;
+  }
+
+  box.innerHTML = html;
+
+  startScreen.insertBefore(box, problemsBox);
+
+  const btn = document.getElementById("closeMarathonBoxBtn");
+  if (btn) {
+    btn.addEventListener("click", () => {
+      sessionStorage.removeItem("lastMarathon");
+      box.remove();
+    });
+  }
 }
 
 // ======================
@@ -356,12 +446,15 @@ function enableGameControls() {
 
 function savePlayerName() {
   let inputName = document.getElementById("playerName").value.trim();
-
   playerName = inputName === "" ? "Игрок" : inputName;
   localStorage.setItem("playerName", playerName);
 }
 
 function startGame() {
+  // при старте новой игры прошлый марафонный блок можно оставить,
+  // но чтобы не путал — уберём:
+  // sessionStorage.removeItem("lastMarathon");
+
   savePlayerName();
 
   maxNumber = parseInt(document.getElementById("difficulty").value, 10);
@@ -396,7 +489,9 @@ function startGame() {
   setTimeout(() => {
     if (gameMode === "marathon") {
       speak(
-        "Привет " + playerName + "! Начинаем марафон. У тебя одна минута. Набери как можно больше очков",
+        "Привет " +
+          playerName +
+          "! Начинаем марафон. У тебя одна минута. Набери как можно больше очков",
         () => {
           time = marathonDuration;
           updateTimer();
@@ -523,32 +618,10 @@ function lose() {
   setTimeout(() => {
     speak("Не правильно. Ты проиграла. Игра окончена.", () => {
       alert("Ты проиграла! Очки: " + score);
-      restartToMenu(); // <-- без reload, сразу покажем низ меню
+      // ВОТ ТУТ автопрокрутка к "Самые проблемные примеры"
+      restartToMenu();
     });
   }, 500);
-}
-
-function showMistakes() {
-  let box = document.getElementById("mistakesBox");
-  let list = document.getElementById("mistakesList");
-
-  if (mistakes.length === 0) {
-    list.innerHTML = '<div class="mistakeItem">Ошибок не было. Отличный результат!</div>';
-  } else {
-    let html = "";
-    for (let i = 0; i < mistakes.length; i++) {
-      html += `
-        <div class="mistakeItem">
-          <div><strong>Пример:</strong> ${mistakes[i].task}</div>
-          <div><strong>Твой ответ:</strong> ${mistakes[i].userAnswer}</div>
-          <div><strong>Правильный ответ:</strong> ${mistakes[i].correctAnswer}</div>
-        </div>
-      `;
-    }
-    list.innerHTML = html;
-  }
-
-  box.style.display = "block";
 }
 
 function finishMarathon() {
@@ -560,21 +633,17 @@ function finishMarathon() {
 
   localStorage.setItem("lastScore", score);
 
-  document.getElementById("doll").classList.remove("show");
-  document.getElementById("task").innerText = "Марафон окончен";
-  document.getElementById("answer").value = "";
-  document.getElementById("timer").innerText = "Время вышло";
-
-  document.getElementById("answer").style.display = "none";
-  document.getElementById("checkButton").style.display = "none";
-
-  showMistakes();
+  // сохраним ошибки марафона и покажем их в меню
+  saveLastMarathonToSession();
 
   speechSynthesis.cancel();
 
   setTimeout(() => {
-    speak("Время вышло. Марафон окончен. Ты набрала " + score + " очков");
-  }, 500);
+    speak("Время вышло. Марафон окончен. Ты набрала " + score + " очков", () => {
+      // ВОТ ТУТ автопрокрутка к "Самые проблемные примеры"
+      restartToMenu();
+    });
+  }, 200);
 }
 
 // ======================
@@ -585,7 +654,11 @@ function finishMarathon() {
   if (resetBtn) resetBtn.addEventListener("click", resetLearning);
 
   const diffEl = document.getElementById("difficulty");
-  if (diffEl) diffEl.addEventListener("change", updateProblemsUI);
+  if (diffEl) diffEl.addEventListener("change", () => {
+    updateProblemsUI();
+    renderLastMarathonBoxFromSession();
+  });
 
   updateProblemsUI();
+  renderLastMarathonBoxFromSession();
 })();
